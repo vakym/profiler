@@ -9,92 +9,116 @@ namespace Memory.Timers
 {
     public static class Timer
     {
-        private readonly static string template = new string(' ', 16);
-        public static string Report
+        public static string Report { get => GenerateReport(); }
+        public static TimerHandle Start(string name="*")
         {
-            get
-            {
-                StringBuilder report = new StringBuilder();
-                foreach(var counter in counters)
-                {
-                    report.Append($"{new string(' ', counter.Item1 * 4)}" +
-                        $"{counter.Item2.ClockName}" +
-                        $"{new string(' ', 20 - (counter.Item1 * 4 + counter.Item2.ClockName.Length))}" +
-                        $": {counter.Item2.ElapsedMilliseconds}\n");
-                }
-                counters.Clear();
-                return report.ToString();
-            }
+            var tickCounter = new TimerHandle(name);
+            tickCounter.Start();
+            TimerHandles.Add(tickCounter);
+            return tickCounter;
         }
-        private static ClockPool clockPool = new ClockPool(10);
-        private static List<Tuple<int, Clock>> counters = new List<Tuple<int, Clock>>();
-        public static Clock Start(string timerName = "*")
+
+        private static List<TimerHandle> TimerHandles = new List<TimerHandle>(10);
+        
+        private static string GenerateReport()
         {
-            var clock = clockPool.SendToPool(timerName);
-            counters.Add(Tuple.Create(ClockPool.StartedClockCount-1, clock));
-            return clock;
+            StringBuilder stringBuilder = new StringBuilder();
+            foreach (var timer in TimerHandles)
+            {
+                var timerGeneration = GetTimerGeneration(timer);
+                stringBuilder.Append(new string(' ',timerGeneration*4));
+                stringBuilder.Append(timer.Name);
+                stringBuilder.Append(new string(' ',20 - (timer.Name.Length+(timerGeneration * 4))));
+                stringBuilder.Append($": {timer.ElapsedMilliseconds}\n");
+            }
+            return stringBuilder.ToString();
+        }
+
+        public static int GetTimerGeneration(TimerHandle timer)
+        {
+            if (!TimerHandles.Contains(timer))
+                return 0;
+            int generation = 0;
+            for (int i = 0; i < TimerHandles.Count; i++)
+            {
+                if (ReferenceEquals(TimerHandles[i], timer))
+                    break;
+                if (TimerHandles[i].IsRunning || TimerHandles[i].EndTick >= timer.StartTick)
+                    generation++; 
+            }
+            return generation;
         }
     }
 
-
-    public class ClockPool
+    public class TimerHandle : IDisposable
     {
-        public static int StartedClockCount { get; private set; } = 0;
+        public string Name { get; }
 
-        private List<Clock> clocks = new List<Clock>();
-        private int freeClockIndex = 0;
-        public ClockPool(int sizeOfPool)
+        public long StartTick { get; private set; }
+
+        public long EndTick { get; private set; }
+
+        public long ElapsedTicks
         {
-            for (int i = 0; i < sizeOfPool; i++)
+            get => ConvertToDateTimeTicks(EndTick - StartTick);
+        }
+
+        public double ElapsedMilliseconds
+        {
+            //Если делить с дробной частью, то можно засекать десятые и соты милисикунды,
+            //но тогда не проходит тесты
+            get => ElapsedTicks / TicksPerMilliseconds;
+        }
+
+        public bool IsRunning { get; private set; } = false;
+
+        public void Start()
+        {
+            if (!IsRunning)
             {
-                clocks.Add(CreateClock());
+                IsRunning = true;
+                StartTick = GetTicksCount();
             }
         }
-          
-        public Clock SendToPool(string name)
+
+        public void Stop()
         {
-            clocks[freeClockIndex].ClockName = name;
-            clocks[freeClockIndex].Start();
-            freeClockIndex++;
-            return clocks[freeClockIndex-1];
-        }
-        public static Clock CreateClock()
-        {
-            var clock = new Clock();
-            clock.ClockStateChanged += Clock_ClockStateChanged;
-            return clock;
+            if (IsRunning)
+            {
+                EndTick = GetTicksCount();
+                IsRunning = false;
+            }
         }
 
-        private static void Clock_ClockStateChanged(object sender, bool isClockStarted)
+        public TimerHandle(string name)
         {
-            if (isClockStarted)
-                StartedClockCount++;
+            Name = name;
+        }
+        
+        private long GetTicksCount()
+        {
+           return Stopwatch.GetTimestamp();
+        }
+
+        private long ConvertToDateTimeTicks(long elapsedRawTicks)
+        {
+            if (Stopwatch.IsHighResolution)
+            {
+                ///Если в системе есть HPET( https://ru.wikipedia.org/wiki/HPET ),
+                ///то тики StopWatch != тикам DateTime и зависят от частоты в HPET(Stopwatch.Frequency)
+                double dticks = elapsedRawTicks;
+                dticks *=  TicksPerSecond / Stopwatch.Frequency;
+                return unchecked((long)dticks);
+            }
             else
-                StartedClockCount--;
+            {
+                return elapsedRawTicks;
+            }
         }
-    }
-
-    public class Clock : Stopwatch,IDisposable
-    {
-        public string ClockName { get; set; }
-
-        public event EventHandler<bool> ClockStateChanged;
-
-
-        public new void Stop()
-        {
-            ClockStateChanged(this, false);
-            base.Stop();
-        }
-
-        public new void Start()
-        {
-            ClockStateChanged(this, true);
-            base.Start();
-        }
+        private const long TicksPerMilliseconds = 10000;
+        private const long TicksPerSecond = TicksPerMilliseconds * 1000;
         #region IDisposable Support
-        private bool disposedValue = false; // Для определения избыточных вызовов
-
+        private bool disposedValue = false; 
         protected virtual void Dispose(bool disposing)
         {
             if (!disposedValue)
@@ -103,28 +127,20 @@ namespace Memory.Timers
                 {
                     // TODO: освободить управляемое состояние (управляемые объекты).
                 }
-                Start();
-                // TODO: освободить неуправляемые ресурсы (неуправляемые объекты) и переопределить ниже метод завершения.
-                // TODO: задать большим полям значение NULL.
-               
+                Stop();
                 disposedValue = true;
             }
         }
 
-        // TODO: переопределить метод завершения, только если Dispose(bool disposing) выше включает код для освобождения неуправляемых ресурсов.
-        // ~Clock()
-        // {
-        //   // Не изменяйте этот код. Разместите код очистки выше, в методе Dispose(bool disposing).
-        //   Dispose(false);
-        // }
+        ~TimerHandle()
+        {
+            Dispose(false);
+        }
 
-        // Этот код добавлен для правильной реализации шаблона высвобождаемого класса.
         public void Dispose()
         {
-            // Не изменяйте этот код. Разместите код очистки выше, в методе Dispose(bool disposing).
             Dispose(true);
-            // TODO: раскомментировать следующую строку, если метод завершения переопределен выше.
-            // GC.SuppressFinalize(this);
+            GC.SuppressFinalize(this);
         }
         #endregion
     }
