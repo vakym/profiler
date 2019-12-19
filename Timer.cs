@@ -10,15 +10,15 @@ namespace Memory.Timers
     public static class Timer
     {
         public static string Report { get => GenerateReport(); }
-        public static TimerHandle Start(string name="*")
+        public static TimerHolder Start(string name="*")
         {
-            var tickCounter = new TimerHandle(name);
+            var tickCounter = new TimerHolder(name);
             tickCounter.Start();
             TimerHandles.Add(tickCounter);
             return tickCounter;
         }
 
-        private static List<TimerHandle> TimerHandles = new List<TimerHandle>(10);
+        private static List<TimerHolder> TimerHandles = new List<TimerHolder>(10);
         
         private static string GenerateReport()
         {
@@ -26,15 +26,16 @@ namespace Memory.Timers
             foreach (var timer in TimerHandles)
             {
                 var timerGeneration = GetTimerGeneration(timer);
-                stringBuilder.Append(new string(' ',timerGeneration*4));
+                var startSpaceCount = timerGeneration * 4;
+                stringBuilder.Append(new string(' ', startSpaceCount));
                 stringBuilder.Append(timer.Name);
-                stringBuilder.Append(new string(' ',20 - (timer.Name.Length+(timerGeneration * 4))));
+                stringBuilder.Append(new string(' ',20 - timer.Name.Length+ startSpaceCount));
                 stringBuilder.Append($": {timer.ElapsedMilliseconds}\n");
             }
             return stringBuilder.ToString();
         }
 
-        public static int GetTimerGeneration(TimerHandle timer)
+        public static int GetTimerGeneration(TimerHolder timer)
         {
             if (!TimerHandles.Contains(timer))
                 return 0;
@@ -50,7 +51,7 @@ namespace Memory.Timers
         }
     }
 
-    public class TimerHandle : IDisposable
+    public class TimerHolder : IDisposable
     {
         public string Name { get; }
 
@@ -90,7 +91,7 @@ namespace Memory.Timers
             }
         }
 
-        public TimerHandle(string name)
+        public TimerHolder(string name)
         {
             Name = name;
         }
@@ -132,7 +133,7 @@ namespace Memory.Timers
             }
         }
 
-        ~TimerHandle()
+        ~TimerHolder()
         {
             Dispose(false);
         }
