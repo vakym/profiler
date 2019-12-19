@@ -22,17 +22,35 @@ namespace Memory.Timers
         
         private static string GenerateReport()
         {
+            Dictionary<int, double> sumOfMillisecondsInGeneration = new Dictionary<int, double>();
             StringBuilder stringBuilder = new StringBuilder();
             foreach (var timer in TimerHandles)
             {
                 var timerGeneration = GetTimerGeneration(timer);
+                if (!sumOfMillisecondsInGeneration.ContainsKey(timerGeneration))
+                    sumOfMillisecondsInGeneration.Add(timerGeneration, timer.ElapsedMilliseconds);
+                else
+                    sumOfMillisecondsInGeneration[timerGeneration] += timer.ElapsedMilliseconds;
                 var startSpaceCount = timerGeneration * 4;
-                stringBuilder.Append(new string(' ', startSpaceCount));
-                stringBuilder.Append(timer.Name);
-                stringBuilder.Append(new string(' ',20 - timer.Name.Length+ startSpaceCount));
-                stringBuilder.Append($": {timer.ElapsedMilliseconds}\n");
+                AddItemToStringBuilder(startSpaceCount, timer.Name, timer.ElapsedMilliseconds);
             }
+
+            foreach (var rest in sumOfMillisecondsInGeneration.OrderByDescending(i=>i.Key))
+            {
+                var startSpaceCount = rest.Key * 4;
+                if(startSpaceCount!=0)
+                    AddItemToStringBuilder(startSpaceCount, "Rest", rest.Value);
+            } 
+
             return stringBuilder.ToString();
+
+            void AddItemToStringBuilder(int startSpaces,string name, double value)
+            {
+                stringBuilder.Append(new string(' ', startSpaces));
+                stringBuilder.Append(name);
+                stringBuilder.Append(new string(' ', 20 - (name.Length + startSpaces)));
+                stringBuilder.Append($": {value}\n");
+            }
         }
 
         public static int GetTimerGeneration(TimerHolder timer)
