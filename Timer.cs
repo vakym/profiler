@@ -1,141 +1,68 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Memory.Timers
 {
     public static class Timer
     {
-        public static string Report { get => GenerateReport(); }
-        public static TimerHolder Start(string name="*")
+        public static string Report { get => GetReport(); }
+
+        public static TimerHolder Start(string timerName  = "*")
         {
-            var tickCounter = new TimerHolder(name);
-            tickCounter.Start();
-            TimerHandles.Add(tickCounter);
-            return tickCounter;
+            var parentTimer = lastAddedTimer.TimerSelect(timer => timer != null, s => s.IsRunning); 
+            lastAddedTimer = new TimerHolder(timerName, parentTimer);
+            if(parentTimer !=null)
+                parentTimer.Childrens.Add(lastAddedTimer);
+            return lastAddedTimer;
         }
 
-        private static List<TimerHolder> TimerHandles = new List<TimerHolder>(10);
-        
-        private static string GenerateReport()
+        private static TimerHolder lastAddedTimer;
+        private static string GetReport()
         {
-            Dictionary<int, double> sumOfMillisecondsInGeneration = new Dictionary<int, double>();
-            StringBuilder stringBuilder = new StringBuilder();
-            foreach (var timer in TimerHandles)
+            StringBuilder report = new StringBuilder();
+            BuildReport(0, lastAddedTimer.TimerSelect(timer=>timer.Parent!=null, s=>false));
+            return report.ToString();
+
+            void BuildReport(int startGeneration, TimerHolder rootTimer)
             {
-                var timerGeneration = GetTimerGeneration(timer);
-                if (!sumOfMillisecondsInGeneration.ContainsKey(timerGeneration))
-                    sumOfMillisecondsInGeneration.Add(timerGeneration, timer.ElapsedMilliseconds);
-                else
-                    sumOfMillisecondsInGeneration[timerGeneration] += timer.ElapsedMilliseconds;
-                var startSpaceCount = timerGeneration * 4;
-                AddItemToStringBuilder(startSpaceCount, timer.Name, timer.ElapsedMilliseconds);
+                AddItemToReport(4 * startGeneration, rootTimer.Name, rootTimer.ElapsedMilliseconds);
+                long sumOfChildrensMilliseconds = 0;
+                foreach (var child in rootTimer.Childrens)
+                {
+                    sumOfChildrensMilliseconds += child.ElapsedMilliseconds;
+                    BuildReport(startGeneration + 1, child);
+                }
+                if (rootTimer.Childrens.Count>0)
+                    AddItemToReport(4 * (startGeneration + 1), "Rest", rootTimer.ElapsedMilliseconds - sumOfChildrensMilliseconds);
             }
 
-            foreach (var rest in sumOfMillisecondsInGeneration.OrderByDescending(i=>i.Key))
+            void AddItemToReport(int startSpaces, string name, double value)
             {
-                var startSpaceCount = rest.Key * 4;
-                if(startSpaceCount!=0)
-                    AddItemToStringBuilder(startSpaceCount, "Rest", rest.Value);
-            } 
-
-            return stringBuilder.ToString();
-
-            void AddItemToStringBuilder(int startSpaces,string name, double value)
-            {
-                stringBuilder.Append(new string(' ', startSpaces));
-                stringBuilder.Append(name);
-                stringBuilder.Append(new string(' ', 20 - (name.Length + startSpaces)));
-                stringBuilder.Append($": {value}\n");
+                report.Append(new string(' ', startSpaces));
+                report.Append(name);
+                report.Append(new string(' ', 20 - (name.Length + startSpaces)));
+                report.Append($": {value}\n");
             }
-        }
-
-        public static int GetTimerGeneration(TimerHolder timer)
-        {
-            if (!TimerHandles.Contains(timer))
-                return 0;
-            int generation = 0;
-            for (int i = 0; i < TimerHandles.Count; i++)
-            {
-                if (ReferenceEquals(TimerHandles[i], timer))
-                    break;
-                if (TimerHandles[i].IsRunning || TimerHandles[i].EndTick >= timer.StartTick)
-                    generation++; 
-            }
-            return generation;
         }
     }
 
-    public class TimerHolder : IDisposable
+    public class TimerHolder : Stopwatch, IDisposable
     {
         public string Name { get; }
 
-        public long StartTick { get; private set; }
+        public List<TimerHolder> Childrens { get; } = new List<TimerHolder>();
+        
+        public TimerHolder Parent { get; }
 
-        public long EndTick { get; private set; }
-
-        public long ElapsedTicks
-        {
-            get => ConvertToDateTimeTicks(EndTick - StartTick);
-        }
-
-        public double ElapsedMilliseconds
-        {
-            //Если делить с дробной частью, то можно засекать десятые и соты милисикунды,
-            //но тогда не проходит тесты
-            get => ElapsedTicks / TicksPerMilliseconds;
-        }
-
-        public bool IsRunning { get; private set; } = false;
-
-        public void Start()
-        {
-            if (!IsRunning)
-            {
-                IsRunning = true;
-                StartTick = GetTicksCount();
-            }
-        }
-
-        public void Stop()
-        {
-            if (IsRunning)
-            {
-                EndTick = GetTicksCount();
-                IsRunning = false;
-            }
-        }
-
-        public TimerHolder(string name)
+        public TimerHolder(string name, TimerHolder parentTimerHolder = null)
         {
             Name = name;
-        }
-        
-        private long GetTicksCount()
-        {
-           return Stopwatch.GetTimestamp();
+            Parent = parentTimerHolder;
+            Start(); 
         }
 
-        private long ConvertToDateTimeTicks(long elapsedRawTicks)
-        {
-            if (Stopwatch.IsHighResolution)
-            {
-                ///Если в системе есть HPET( https://ru.wikipedia.org/wiki/HPET ),
-                ///то тики StopWatch != тикам DateTime и зависят от частоты в HPET(Stopwatch.Frequency)
-                double dticks = elapsedRawTicks;
-                dticks *=  TicksPerSecond / Stopwatch.Frequency;
-                return unchecked((long)dticks);
-            }
-            else
-            {
-                return elapsedRawTicks;
-            }
-        }
-        private const long TicksPerMilliseconds = 10000;
-        private const long TicksPerSecond = TicksPerMilliseconds * 1000;
         #region IDisposable Support
         private bool disposedValue = false; 
         protected virtual void Dispose(bool disposing)
@@ -162,5 +89,21 @@ namespace Memory.Timers
             GC.SuppressFinalize(this);
         }
         #endregion
+    }
+
+    public static class TimerHolderExtensions
+    {
+        public static TimerHolder TimerSelect(this TimerHolder startTimer,
+                                              Func<TimerHolder, bool> selector,
+                                              Func<TimerHolder, bool> returnСriterion)
+        {
+            while (selector(startTimer))
+            {
+                if (returnСriterion(startTimer))
+                    return startTimer;
+                startTimer = startTimer.Parent;
+            }
+            return startTimer;
+        }
     }
 }
